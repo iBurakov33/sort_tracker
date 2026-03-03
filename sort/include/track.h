@@ -15,6 +15,8 @@ public:
     void Predict();
     void Update(const cv::Rect& bbox);
     cv::Rect GetStateAsBbox() const;
+    cv::Rect GetLastObservation() const;
+    cv::Point2f GetObservationDirection() const;
     float GetNIS() const;
 
     int coast_cycles_ = 0, hit_streak_ = 0;
@@ -22,6 +24,10 @@ public:
 private:
     Eigen::VectorXd ConvertBboxToObservation(const cv::Rect& bbox) const;
     cv::Rect ConvertStateToBbox(const Eigen::VectorXd &state) const;
+    static cv::Point2f GetCenter(const cv::Rect& bbox);
 
     KalmanFilter kf_;
+    cv::Rect last_observation_;
+    cv::Rect previous_observation_;
+    bool has_observation_ = false;
 };
