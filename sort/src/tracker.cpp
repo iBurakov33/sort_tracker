@@ -1,5 +1,7 @@
 #include "tracker.h"
 
+#include <cmath>
+
 
 Tracker::Tracker() {
     id_ = 0;
@@ -22,6 +24,35 @@ float Tracker::CalculateIou(const cv::Rect& det, const Track& track) {
     float union_area = det_area + trk_area - intersection_area;
     auto iou = intersection_area / union_area;
     return iou;
+}
+
+
+float Tracker::CalculateObservationCost(const cv::Rect& det, const Track& track, float velocity_weight) {
+    const float iou = CalculateIou(det, track);
+    const cv::Rect last_obs = track.GetLastObservation();
+
+    const cv::Point2f det_center(
+            static_cast<float>(det.x) + static_cast<float>(det.width) * 0.5f,
+            static_cast<float>(det.y) + static_cast<float>(det.height) * 0.5f);
+    const cv::Point2f obs_center(
+            static_cast<float>(last_obs.x) + static_cast<float>(last_obs.width) * 0.5f,
+            static_cast<float>(last_obs.y) + static_cast<float>(last_obs.height) * 0.5f);
+
+    cv::Point2f det_direction = det_center - obs_center;
+    const float det_norm = std::sqrt(det_direction.x * det_direction.x + det_direction.y * det_direction.y);
+    if (det_norm > 1e-6f) {
+        det_direction.x /= det_norm;
+        det_direction.y /= det_norm;
+    } else {
+        det_direction = cv::Point2f(0.0f, 0.0f);
+    }
+
+    const cv::Point2f track_direction = track.GetObservationDirection();
+    const float directional_similarity = det_direction.x * track_direction.x + det_direction.y * track_direction.y;
+
+    const float normalized_direction = 0.5f * (directional_similarity + 1.0f);
+    const float score = (1.0f - velocity_weight) * iou + velocity_weight * normalized_direction;
+    return std::max(0.0f, std::min(1.0f, score));
 }
 
 
@@ -90,9 +121,8 @@ void Tracker::AssociateDetectionsToTrackers(const std::vector<cv::Rect>& detecti
         return;
     }
 
-    std::vector<std::vector<float>> iou_matrix;
-    // resize IOU matrix based on number of detection and tracks
-    iou_matrix.resize(detection.size(), std::vector<float>(tracks.size()));
+    std::vector<std::vector<float>> cost_matrix;
+    cost_matrix.resize(detection.size(), std::vector<float>(tracks.size()));
 
     std::vector<std::vector<float>> association;
     // resize association matrix based on number of detection and tracks
@@ -103,21 +133,21 @@ void Tracker::AssociateDetectionsToTrackers(const std::vector<cv::Rect>& detecti
     for (size_t i = 0; i < detection.size(); i++) {
         size_t j = 0;
         for (const auto& trk : tracks) {
-            iou_matrix[i][j] = CalculateIou(detection[i], trk.second);
+            cost_matrix[i][j] = CalculateObservationCost(detection[i], trk.second);
             j++;
         }
     }
 
     // Find association
-    HungarianMatching(iou_matrix, detection.size(), tracks.size(), association);
+    HungarianMatching(cost_matrix, detection.size(), tracks.size(), association);
 
     for (size_t i = 0; i < detection.size(); i++) {
         bool matched_flag = false;
         size_t j = 0;
         for (const auto& trk : tracks) {
             if (0 == association[i][j]) {
-                // Filter out matched with low IOU
-                if (iou_matrix[i][j] >= iou_threshold) {
+                // Filter out weak observation-centric associations
+                if (cost_matrix[i][j] >= iou_threshold) {
                     matched[trk.first] = detection[i];
                     matched_flag = true;
                 }

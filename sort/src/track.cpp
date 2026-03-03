@@ -1,5 +1,7 @@
 #include "track.h"
 
+#include <cmath>
+
 
 Track::Track() : kf_(8, 4) {
 
@@ -77,6 +79,11 @@ void Track::Update(const cv::Rect& bbox) {
     Eigen::VectorXd observation = ConvertBboxToObservation(bbox);
     kf_.Update(observation);
 
+    if (has_observation_) {
+        previous_observation_ = last_observation_;
+    }
+    last_observation_ = bbox;
+    has_observation_ = true;
 
 }
 
@@ -85,6 +92,9 @@ void Track::Update(const cv::Rect& bbox) {
 void Track::Init(const cv::Rect &bbox) {
     kf_.x_.head(4) << ConvertBboxToObservation(bbox);
     hit_streak_++;
+    previous_observation_ = bbox;
+    last_observation_ = bbox;
+    has_observation_ = true;
 }
 
 
@@ -94,6 +104,32 @@ void Track::Init(const cv::Rect &bbox) {
  */
 cv::Rect Track::GetStateAsBbox() const {
     return ConvertStateToBbox(kf_.x_);
+}
+
+
+cv::Rect Track::GetLastObservation() const {
+    if (!has_observation_) {
+        return GetStateAsBbox();
+    }
+    return last_observation_;
+}
+
+
+cv::Point2f Track::GetObservationDirection() const {
+    if (!has_observation_) {
+        return cv::Point2f(0.0f, 0.0f);
+    }
+
+    const cv::Point2f curr_center = GetCenter(last_observation_);
+    const cv::Point2f prev_center = GetCenter(previous_observation_);
+    const cv::Point2f motion = curr_center - prev_center;
+    const float norm = std::sqrt(motion.x * motion.x + motion.y * motion.y);
+
+    if (norm < 1e-6f) {
+        return cv::Point2f(0.0f, 0.0f);
+    }
+
+    return cv::Point2f(motion.x / norm, motion.y / norm);
 }
 
 
@@ -136,4 +172,11 @@ cv::Rect Track::ConvertStateToBbox(const Eigen::VectorXd &state) const {
     auto tl_y = static_cast<int>(state[1] - height / 2.0);
     cv::Rect rect(cv::Point(tl_x, tl_y), cv::Size(width, height));
     return rect;
+}
+
+
+cv::Point2f Track::GetCenter(const cv::Rect& bbox) {
+    return cv::Point2f(
+            static_cast<float>(bbox.x) + static_cast<float>(bbox.width) * 0.5f,
+            static_cast<float>(bbox.y) + static_cast<float>(bbox.height) * 0.5f);
 }
