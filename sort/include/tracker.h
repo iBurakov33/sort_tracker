@@ -14,7 +14,9 @@ public:
 
     static float CalculateIou(const cv::Rect& det, const Track& track);
     static float CalculateObservationCost(const cv::Rect& det, const Track& track,
-                                          float velocity_weight = kVelocityDirectionWeight);
+                                          const cv::Mat& frame = cv::Mat(),
+                                          float velocity_weight = kVelocityDirectionWeight,
+                                          float appearance_weight = 0.35f);
 
     static void HungarianMatching(const std::vector<std::vector<float>>& iou_matrix,
                            size_t nrows, size_t ncols,
@@ -33,9 +35,10 @@ public:
                                        std::map<int, Track>& tracks,
                                        std::map<int, cv::Rect>& matched,
                                        std::vector<cv::Rect>& unmatched_det,
+                                       const cv::Mat& frame = cv::Mat(),
                                        float iou_threshold = kAssociationIouThreshold);
 
-    void Run(const std::vector<cv::Rect>& detections);
+    void Run(const std::vector<cv::Rect>& detections, const cv::Mat& frame = cv::Mat());
 
     std::map<int, Track> GetTracks();
 

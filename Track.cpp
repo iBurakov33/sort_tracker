@@ -135,7 +135,7 @@ int main(int argc, char** argv) {
 			for (size_t j = 0; j < result.size(); j++) {
 				dets.push_back(get_rect(ORIGINAL_W, ORIGINAL_H, result[j].bbox));
 			}
-			sort.Run(dets);
+			sort.Run(dets, imgs[b]);
 			std::map<int, Track> tracks = sort.GetTracks();
 
 			auto im = imgs[b];
