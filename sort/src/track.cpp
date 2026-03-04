@@ -48,6 +48,17 @@ Track::Track() : kf_(12, 4) {
 // Get predicted locations from existing trackers
 // dt is encoded in F_ (currently fixed to 1.0)
 void Track::Predict() {
+    // When an object is temporarily lost (coasting), aggressively damp size dynamics
+    // so predicted width/height change much less between frames.
+    if (coast_cycles_ > 0) {
+        constexpr double kSizeVelocityDamping = 0.2;
+        constexpr double kSizeAccelerationDamping = 0.1;
+        kf_.x_(6) *= kSizeVelocityDamping;   // v_width
+        kf_.x_(7) *= kSizeVelocityDamping;   // v_height
+        kf_.x_(10) *= kSizeAccelerationDamping; // a_width
+        kf_.x_(11) *= kSizeAccelerationDamping; // a_height
+    }
+
     kf_.Predict();
 
     // hit streak count will be reset
