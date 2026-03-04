@@ -27,7 +27,10 @@ float Tracker::CalculateIou(const cv::Rect& det, const Track& track) {
 }
 
 
-float Tracker::CalculateObservationCost(const cv::Rect& det, const Track& track, float velocity_weight) {
+float Tracker::CalculateObservationCost(const cv::Rect& det, const Track& track,
+                                      const cv::Mat& frame,
+                                      float velocity_weight,
+                                      float appearance_weight) {
     const float iou = CalculateIou(det, track);
     const cv::Rect last_obs = track.GetLastObservation();
 
@@ -51,7 +54,15 @@ float Tracker::CalculateObservationCost(const cv::Rect& det, const Track& track,
     const float directional_similarity = det_direction.x * track_direction.x + det_direction.y * track_direction.y;
 
     const float normalized_direction = 0.5f * (directional_similarity + 1.0f);
-    const float score = (1.0f - velocity_weight) * iou + velocity_weight * normalized_direction;
+    float motion_score = (1.0f - velocity_weight) * iou + velocity_weight * normalized_direction;
+    motion_score = std::max(0.0f, std::min(1.0f, motion_score));
+
+    if (frame.empty() || !track.HasAppearanceDescriptor()) {
+        return motion_score;
+    }
+
+    const float appearance_score = track.CalculateAppearanceSimilarity(det, frame);
+    const float score = (1.0f - appearance_weight) * motion_score + appearance_weight * appearance_score;
     return std::max(0.0f, std::min(1.0f, score));
 }
 
@@ -111,6 +122,7 @@ void Tracker::AssociateDetectionsToTrackers(const std::vector<cv::Rect>& detecti
                                             std::map<int, Track>& tracks,
                                             std::map<int, cv::Rect>& matched,
                                             std::vector<cv::Rect>& unmatched_det,
+                                            const cv::Mat& frame,
                                             float iou_threshold) {
 
     // Set all detection as unmatched if no tracks existing
@@ -133,7 +145,7 @@ void Tracker::AssociateDetectionsToTrackers(const std::vector<cv::Rect>& detecti
     for (size_t i = 0; i < detection.size(); i++) {
         size_t j = 0;
         for (const auto& trk : tracks) {
-            cost_matrix[i][j] = CalculateObservationCost(detection[i], trk.second);
+            cost_matrix[i][j] = CalculateObservationCost(detection[i], trk.second, frame);
             j++;
         }
     }
@@ -164,7 +176,7 @@ void Tracker::AssociateDetectionsToTrackers(const std::vector<cv::Rect>& detecti
 }
 
 
-void Tracker::Run(const std::vector<cv::Rect>& detections) {
+void Tracker::Run(const std::vector<cv::Rect>& detections, const cv::Mat& frame) {
 
     /*** Predict internal tracks from previous frame ***/
     for (auto &track : tracks_) {
@@ -178,19 +190,19 @@ void Tracker::Run(const std::vector<cv::Rect>& detections) {
 
     // return values - matched, unmatched_det
     if (!detections.empty()) {
-        AssociateDetectionsToTrackers(detections, tracks_, matched, unmatched_det);
+        AssociateDetectionsToTrackers(detections, tracks_, matched, unmatched_det, frame);
     }
 
     /*** Update tracks with associated bbox ***/
     for (const auto &match : matched) {
         const auto &ID = match.first;
-        tracks_[ID].Update(match.second);
+        tracks_[ID].Update(match.second, frame);
     }
 
     /*** Create new tracks for unmatched detections ***/
     for (const auto &det : unmatched_det) {
         Track tracker;
-        tracker.Init(det);
+        tracker.Init(det, frame);
         // Create new track and generate new ID
         tracks_[id_++] = tracker;
     }
